@@ -16,8 +16,8 @@ import json
 
 # Import our implementations
 import bten
-from llama_model import create_tinyllama_model
-from llama_config import LLaMAConfig
+from mygrad.llama.llama_model import create_tinyllama_model
+from mygrad.llama.llama_config import LLaMAConfig
 
 def benchmark_python_impl(batch_size: int, num_warmup: int = 5, num_iterations: int = 100) -> Dict[str, Any]:
     """Benchmark Python implementation"""
@@ -25,7 +25,7 @@ def benchmark_python_impl(batch_size: int, num_warmup: int = 5, num_iterations: 
     print("Benchmarking Python Implementation")
     print("="*60)
     
-    from agtensor import no_grad
+    from mygrad.engine import no_grad
     
     # Create model
     print("Creating model...")
