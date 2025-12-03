@@ -219,7 +219,7 @@ BenchmarkResult benchmark_model(
     
     // Create input
     Tensor<uint32_t> input_ids(batch_size, 1, model.config().on_device);
-    #op_const_fill(input_ids, (uint32_t)1);  // Fill with token ID 1
+    // op_const_fill(input_ids, (uint32_t)1);  // Fill with token ID 1
     // Fill manually (op_const_fill may not work for uint32)
     Tensor<uint32_t> host_ids(batch_size, 1, false);
     for (int i = 0; i < batch_size; i++) {
