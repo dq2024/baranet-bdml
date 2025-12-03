@@ -3,7 +3,6 @@
 #SBATCH --job-name=job_wgpu
 #SBATCH --open-mode=append
 #SBATCH --output=out/test.out
-#SBATCH --error=out/test.err
 #SBATCH --export=ALL
 #SBATCH --time=1:00:00
 #SBATCH --gres=gpu:1
