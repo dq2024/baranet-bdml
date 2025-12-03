@@ -5,7 +5,7 @@ Attention, MLP, and Decoder block implementations
 import numpy as np
 import sys; sys.path.append("build")
 import bten
-from agtensor import AGTensor, no_grad
+from mygrad.engine import AGTensor, no_grad
 from agtensor_llama import *  # Import LLaMA-specific operations
 from llama_config import LLaMAConfig
 from typing import Optional, Tuple

@@ -4,7 +4,7 @@ Complete TinyLLaMA Model Implementation
 import numpy as np
 import sys; sys.path.append("build")
 import bten
-from agtensor import AGTensor, no_grad
+from mygrad.engine import AGTensor, no_grad
 from agtensor_llama import *
 from llama_config import LLaMAConfig
 from llama_layers import LLaMADecoderLayer, RMSNorm

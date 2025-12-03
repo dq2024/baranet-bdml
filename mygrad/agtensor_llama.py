@@ -24,7 +24,7 @@ def no_grad():
         _grad_enabled = old
 
 # Import base AGTensor class
-from mygrad.engine import AGTensor
+from engine import AGTensor
 
 # Add LLaMA-specific methods to AGTensor
 def silu(self):
