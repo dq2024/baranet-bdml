@@ -158,7 +158,7 @@ public:
 template <typename T>
 void bind_tensor_type(py::module_ &m, const char* pyname) {
   using Self = PyTensor<T>;
-  py::class_<Self>(m, pyname)
+  auto cls = py::class_<Self>(m, pyname)
     .def(py::init<int,int,bool>(), py::arg("h"), py::arg("w"), py::arg("is_cuda")=true)
     .def_property_readonly("shape", &Self::shape)
     .def_property_readonly("is_cuda", &Self::is_cuda)
@@ -226,10 +226,9 @@ void bind_tensor_type(py::module_ &m, const char* pyname) {
       return out;
     }, py::arg("other"));
 
-  // FLOAT-ONLY OPERATIONS
+  // FLOAT-ONLY OPERATIONS - add to the SAME class object
   if constexpr (std::is_floating_point_v<T>) {
-    py::class_<Self>(m, pyname)
-      .def("relu", [](const Self &me) {
+    cls.def("relu", [](const Self &me) {
         PyTensor<T> out(me.t.h, me.t.w, me.t.on_device);
         op_relu<T>(me.t, out.t);
         return out;
