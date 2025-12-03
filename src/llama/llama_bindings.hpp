@@ -13,47 +13,39 @@ void copy_uint32_from_numpy(py::array_t<uint32_t> arr, Tensor<uint32_t>& tensor)
     auto buf = arr.request();
     int batch_size = buf.shape[0];
     
-    // Create host tensor and copy data
     Tensor<uint32_t> host_tensor(batch_size, 1, false);
     uint32_t* ptr = static_cast<uint32_t*>(buf.ptr);
     for (int i = 0; i < batch_size; i++) {
         Index(host_tensor, i, 0) = ptr[i];
     }
     
-    // Move to device if needed
     if (tensor.on_device) {
         host_tensor.toDevice(tensor);
     } else {
-        // Copy data manually since we can't assign
         for (int i = 0; i < batch_size; i++) {
             Index(tensor, i, 0) = Index(host_tensor, i, 0);
         }
     }
 }
 
-// Wrapper for C++ LLaMAModel
 template <typename T>
 class PyLLaMAModel {
 public:
     PyLLaMAModel(const llama::LLaMAConfig& config, bool on_device = true)
-        : model_(config, on_device) {}
+        : model_(config, on_device), on_device_(on_device) {}
     
     py::array forward(py::array_t<uint32_t> input_ids) {
         auto buf = input_ids.request();
         int batch_size = buf.shape[0];
         
-        // Create input tensor
-        Tensor<uint32_t> input(batch_size, 1, model_.config().on_device);
+        Tensor<uint32_t> input(batch_size, 1, on_device_);
         copy_uint32_from_numpy(input_ids, input);
         
-        // Create output tensor
         int vocab_size = model_.config().vocab_size;
-        Tensor<T> logits(batch_size, vocab_size, model_.config().on_device);
+        Tensor<T> logits(batch_size, vocab_size, on_device_);
         
-        // Forward pass
         model_.forward(input, logits);
         
-        // Convert to numpy
         Tensor<T> logits_host = logits.toHost();
         py::array_t<T> result({batch_size, vocab_size});
         T* result_ptr = result.mutable_data();
@@ -70,11 +62,11 @@ public:
         auto buf = input_ids.request();
         int batch_size = buf.shape[0];
         
-        Tensor<uint32_t> input(batch_size, 1, model_.config().on_device);
+        Tensor<uint32_t> input(batch_size, 1, on_device_);
         copy_uint32_from_numpy(input_ids, input);
         
         int vocab_size = model_.config().vocab_size;
-        Tensor<T> logits(batch_size, vocab_size, model_.config().on_device);
+        Tensor<T> logits(batch_size, vocab_size, on_device_);
         
         return model_.forward_timed(input, logits);
     }
@@ -100,11 +92,10 @@ public:
     
 private:
     llama::LLaMAModel<T> model_;
+    bool on_device_;
 };
 
-// Bind to Python
 void bind_llama_model(py::module_ &m) {
-    // Config
     py::class_<llama::LLaMAConfig>(m, "LLaMAConfig")
         .def(py::init<>())
         .def_readwrite("vocab_size", &llama::LLaMAConfig::vocab_size)
@@ -119,7 +110,6 @@ void bind_llama_model(py::module_ &m) {
         .def_static("tinyllama_1_1b", &llama::LLaMAConfig::tinyllama_1_1b)
         .def("__repr__", &llama::LLaMAConfig::to_string);
     
-    // Model
     py::class_<PyLLaMAModel<float>>(m, "LLaMAModelCpp")
         .def(py::init<const llama::LLaMAConfig&, bool>(),
              py::arg("config"), py::arg("on_device") = true)
