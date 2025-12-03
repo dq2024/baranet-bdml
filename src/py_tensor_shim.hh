@@ -159,17 +159,15 @@ template <typename T>
 void bind_tensor_type(py::module_ &m, const char* pyname) {
   using Self = PyTensor<T>;
   py::class_<Self>(m, pyname)
-    .def(py::init<int,int,bool>(), py::arg("h"), py::arg("w"), py::arg("is_cuda")=true,
-         "Create a tensor with shape (h, w) on CPU or CUDA.")
+    .def(py::init<int,int,bool>(), py::arg("h"), py::arg("w"), py::arg("is_cuda")=true)
     .def_property_readonly("shape", &Self::shape)
     .def_property_readonly("is_cuda", &Self::is_cuda)
-    .def("to_numpy", &Self::to_numpy, "Copy the tensor to a NumPy array (host).")
-    .def("copy_from_numpy", &Self::copy_from_numpy,
-         "Copy data from a NumPy array (must be same shape).")
+    .def("to_numpy", &Self::to_numpy)
+    .def("copy_from_numpy", &Self::copy_from_numpy)
     .def("fill", &Self::fill, py::arg("value"))
-    .def("transpose", &Self::transpose, "Return a transposed view (no copy).")
+    .def("transpose", &Self::transpose)
     .def("slice", &Self::slice_view, py::arg("start_h"), py::arg("end_h"),
-         py::arg("start_w"), py::arg("end_w"), "Explicit slice view of the tensor.")
+         py::arg("start_w"), py::arg("end_w"))
     .def_property_readonly("T", &Self::transpose)
     .def("__getitem__", &Self::getitem)
     .def("__repr__", &Self::repr)
@@ -203,29 +201,7 @@ void bind_tensor_type(py::module_ &m, const char* pyname) {
       op_equal<T>(me.t, other.t, out.t);
       return out;
     }, py::arg("other"))
-    .def("relu", [](const Self &me) {
-      PyTensor<T> out(me.t.h, me.t.w, me.t.on_device);
-      op_relu<T>(me.t, out.t);
-      return out;
-    })
-    .def("relu_back", [](const Self &me, const Self &dout) {
-      PyTensor<T> din(me.t.h, me.t.w, me.t.on_device);
-      op_relu_back<T>(me.t, dout.t, din.t);
-      return din;
-    }, py::arg("DOut"))
-    .def("silu", [](const Self &me) {
-      PyTensor<T> out(me.t.h, me.t.w, me.t.on_device);
-      op_silu<T>(me.t, out.t);
-      return out;
-    }, "SiLU (Swish) activation: x * sigmoid(x)")
-    .def("silu_back", [](const Self &me, const Self &dout) {
-      PyTensor<T> din(me.t.h, me.t.w, me.t.on_device);
-      op_silu_backward<T>(me.t, dout.t, din.t);
-      return din;
-    }, py::arg("DOut"), "Backward pass for SiLU")
     .def("sum", [](const Self &me, int axis=0) {
-      // axis=0: sum over rows, output shape (1, w)
-      // axis=1: sum over cols, output shape (h, 1)
       int out_h = me.t.h;
       int out_w = me.t.w;
       if (axis == 0) {
@@ -248,42 +224,64 @@ void bind_tensor_type(py::module_ &m, const char* pyname) {
       PyTensor<T> out(me.t.h, other.t.w, me.t.on_device);
       op_mm<T>(me.t, other.t, out.t);
       return out;
-    }, py::arg("other"))
-    .def("cross_entropy_loss", [](const Self &logits, const PyTensor<uint32_t> &labels, PyTensor<T> &d_logits) {
-      return op_cross_entropy_loss<T,uint32_t>(logits.t, labels.t, d_logits.t);
-    }, py::arg("labels"), py::arg("d_logits"), "Compute cross-entropy loss and its gradient")
-    .def("rmsnorm", [](const Self &me, const Self &weight, T eps) {
-      PyTensor<T> out(me.t.h, me.t.w, me.t.on_device);
-      op_rmsnorm<T>(me.t, weight.t, out.t, eps);
-      return out;
-    }, py::arg("weight"), py::arg("eps")=1e-6f, "RMS normalization")
-    .def("rmsnorm_back", [](const Self &me, const Self &weight, const Self &grad_out, 
-                             PyTensor<T> &grad_weight, T eps) {
-      PyTensor<T> grad_in(me.t.h, me.t.w, me.t.on_device);
-      op_rmsnorm_backward<T>(me.t, weight.t, grad_out.t, grad_in.t, grad_weight.t, eps);
-      return grad_in;
-    }, py::arg("weight"), py::arg("grad_out"), py::arg("grad_weight"), py::arg("eps")=1e-6f,
-       "RMS normalization backward pass")
-    .def("rope", [](const Self &me, int position_offset, int head_dim, T theta) {
-      PyTensor<T> out(me.t.h, me.t.w, me.t.on_device);
-      op_rope<T>(me.t, out.t, position_offset, head_dim, theta);
-      return out;
-    }, py::arg("position_offset")=0, py::arg("head_dim")=64, py::arg("theta")=10000.0f,
-       "Rotary position embeddings")
-    .def("rope_back", [](const Self &grad_out, int position_offset, int head_dim, T theta) {
-      PyTensor<T> grad_in(grad_out.t.h, grad_out.t.w, grad_out.t.on_device);
-      op_rope_backward<T>(grad_out.t, grad_in.t, position_offset, head_dim, theta);
-      return grad_in;
-    }, py::arg("position_offset")=0, py::arg("head_dim")=64, py::arg("theta")=10000.0f,
-       "RoPE backward pass")
-    .def("softmax", [](const Self &me, bool causal, int seq_offset) {
-      PyTensor<T> out(me.t.h, me.t.w, me.t.on_device);
-      op_softmax<T>(me.t, out.t, causal, seq_offset);
-      return out;
-    }, py::arg("causal")=false, py::arg("seq_offset")=0, "Softmax (optionally with causal mask)")
-    .def("softmax_back", [](const Self &output, const Self &grad_out) {
-      PyTensor<T> grad_in(output.t.h, output.t.w, output.t.on_device);
-      op_softmax_backward<T>(output.t, grad_out.t, grad_in.t);
-      return grad_in;
-    }, py::arg("grad_out"), "Softmax backward pass");
+    }, py::arg("other"));
+
+  // FLOAT-ONLY OPERATIONS
+  if constexpr (std::is_floating_point_v<T>) {
+    py::class_<Self>(m, pyname)
+      .def("relu", [](const Self &me) {
+        PyTensor<T> out(me.t.h, me.t.w, me.t.on_device);
+        op_relu<T>(me.t, out.t);
+        return out;
+      })
+      .def("relu_back", [](const Self &me, const Self &dout) {
+        PyTensor<T> din(me.t.h, me.t.w, me.t.on_device);
+        op_relu_back<T>(me.t, dout.t, din.t);
+        return din;
+      }, py::arg("DOut"))
+      .def("silu", [](const Self &me) {
+        PyTensor<T> out(me.t.h, me.t.w, me.t.on_device);
+        op_silu<T>(me.t, out.t);
+        return out;
+      })
+      .def("silu_back", [](const Self &me, const Self &dout) {
+        PyTensor<T> din(me.t.h, me.t.w, me.t.on_device);
+        op_silu_backward<T>(me.t, dout.t, din.t);
+        return din;
+      }, py::arg("DOut"))
+      .def("cross_entropy_loss", [](const Self &logits, const PyTensor<uint32_t> &labels, PyTensor<T> &d_logits) {
+        return op_cross_entropy_loss<T,uint32_t>(logits.t, labels.t, d_logits.t);
+      }, py::arg("labels"), py::arg("d_logits"))
+      .def("rmsnorm", [](const Self &me, const Self &weight, T eps) {
+        PyTensor<T> out(me.t.h, me.t.w, me.t.on_device);
+        op_rmsnorm<T>(me.t, weight.t, out.t, eps);
+        return out;
+      }, py::arg("weight"), py::arg("eps")=1e-6f)
+      .def("rmsnorm_back", [](const Self &me, const Self &weight, const Self &grad_out, 
+                               PyTensor<T> &grad_weight, T eps) {
+        PyTensor<T> grad_in(me.t.h, me.t.w, me.t.on_device);
+        op_rmsnorm_backward<T>(me.t, weight.t, grad_out.t, grad_in.t, grad_weight.t, eps);
+        return grad_in;
+      }, py::arg("weight"), py::arg("grad_out"), py::arg("grad_weight"), py::arg("eps")=1e-6f)
+      .def("rope", [](const Self &me, int position_offset, int head_dim, T theta) {
+        PyTensor<T> out(me.t.h, me.t.w, me.t.on_device);
+        op_rope<T>(me.t, out.t, position_offset, head_dim, theta);
+        return out;
+      }, py::arg("position_offset")=0, py::arg("head_dim")=64, py::arg("theta")=10000.0f)
+      .def("rope_back", [](const Self &grad_out, int position_offset, int head_dim, T theta) {
+        PyTensor<T> grad_in(grad_out.t.h, grad_out.t.w, grad_out.t.on_device);
+        op_rope_backward<T>(grad_out.t, grad_in.t, position_offset, head_dim, theta);
+        return grad_in;
+      }, py::arg("position_offset")=0, py::arg("head_dim")=64, py::arg("theta")=10000.0f)
+      .def("softmax", [](const Self &me, bool causal, int seq_offset) {
+        PyTensor<T> out(me.t.h, me.t.w, me.t.on_device);
+        op_softmax<T>(me.t, out.t, causal, seq_offset);
+        return out;
+      }, py::arg("causal")=false, py::arg("seq_offset")=0)
+      .def("softmax_back", [](const Self &output, const Self &grad_out) {
+        PyTensor<T> grad_in(output.t.h, output.t.w, output.t.on_device);
+        op_softmax_backward<T>(output.t, grad_out.t, grad_in.t);
+        return grad_in;
+      }, py::arg("grad_out"));
+  }
 }
