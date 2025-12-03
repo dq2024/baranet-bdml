@@ -5,7 +5,6 @@
 #SBATCH --partition=n1s8-t4-1
 #SBATCH --open-mode=append
 #SBATCH --output=test.out
-#SBATCH --error=test.err
 #SBATCH --export=ALL
 #SBATCH --time=1:00:00
 #SBATCH --gres=gpu:1
