@@ -17,8 +17,7 @@ PYBIND11_MODULE(bten, m) {
       ::randgen_seed = seed;
   }, "Set random seed");
 
-  // Bind tensor types
-  bind_tensor_type<float>(m, "Tensor");
+  bind_tensor_type<float>(m, "TensorF");
   bind_tensor_type<uint32_t>(m, "TensorU32");
   
   // Bind LLaMA model
