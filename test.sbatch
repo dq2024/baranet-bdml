@@ -1,6 +1,9 @@
 #!/bin/bash
 
 #SBATCH --job-name=job_wgpu
+#SBATCH --account=csci_ga_3033-2025fa
+#SBATCH --partition=n1s8-t4-1
+#SBATCH --open-mode=append
 #SBATCH --output=test.out
 #SBATCH --error=test.err
 #SBATCH --export=ALL
