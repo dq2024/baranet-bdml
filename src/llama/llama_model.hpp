@@ -2,6 +2,7 @@
 
 #include "llama_config.hpp"
 #include "llama_layers.hpp"
+#include "ops/op_elemwise.cuh"
 #include "utils/tensor.cuh"
 #include <vector>
 #include <memory>
@@ -218,7 +219,17 @@ BenchmarkResult benchmark_model(
     
     // Create input
     Tensor<uint32_t> input_ids(batch_size, 1, model.config().on_device);
-    op_const_fill(input_ids, (uint32_t)1);  // Fill with token ID 1
+    #op_const_fill(input_ids, (uint32_t)1);  // Fill with token ID 1
+    // Fill manually (op_const_fill may not work for uint32)
+    Tensor<uint32_t> host_ids(batch_size, 1, false);
+    for (int i = 0; i < batch_size; i++) {
+        Index(host_ids, i, 0) = (uint32_t)1;
+    }
+    if (model.config().on_device) {
+        host_ids.toDevice(input_ids);
+    } else {
+        input_ids = host_ids;
+    }
     
     Tensor<T> logits(batch_size, model.config().vocab_size, model.config().on_device);
     
