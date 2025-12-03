@@ -30,13 +30,15 @@ def benchmark_python_impl(batch_size: int, num_warmup: int = 5, num_iterations: 
     # Create model
     print("Creating model...")
     config = LLaMAConfig()
-    config.vocab_size = 1000  # Smaller for faster testing
+    config.vocab_size = 1000
     config.hidden_size = 256
     config.num_hidden_layers = 4
     config.num_attention_heads = 8
     config.num_key_value_heads = 2
-    
-    model = create_tinyllama_model(is_cuda=True)
+    config.intermediate_size = 256 * 4
+
+    from mygrad.llama.llama_model import LLaMAModel
+    model = LLaMAModel(config, is_cuda=True) 
     
     # Create input
     input_ids = np.random.randint(0, config.vocab_size, size=batch_size, dtype=np.uint32)
