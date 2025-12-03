@@ -71,20 +71,45 @@ def benchmark_python_impl(batch_size: int, num_warmup: int = 5, num_iterations: 
     
     return result
 
+# def benchmark_cpp_impl(batch_size: int, num_warmup: int = 5, num_iterations: int = 100) -> Dict[str, Any]:
+#     """Benchmark C++ implementation"""
+#     print("\n" + "="*60)
+#     print("Benchmarking C++ Implementation")
+#     print("="*60)
+    
+#     # Check if C++ bindings are available
+#     try:
+#         config = bten.LLaMAConfig.tinyllama_1_1b()
+#         model = bten.LLaMAModelCpp(config, True)
+#     except AttributeError:
+#         print("C++ LLaMA bindings not available!")
+#         print("You need to add llama_bindings.hpp to your bindings.cu")
+#         return None
+    
+#     print("Model created successfully!")
+#     print(f"Parameters: {model.count_parameters() / 1e6:.1f}M")
+    
+#     # Run benchmark
+#     print(f"Running benchmark...")
+#     result = model.benchmark(batch_size, num_warmup, num_iterations)
+    
+#     return result
 def benchmark_cpp_impl(batch_size: int, num_warmup: int = 5, num_iterations: int = 100) -> Dict[str, Any]:
     """Benchmark C++ implementation"""
     print("\n" + "="*60)
     print("Benchmarking C++ Implementation")
     print("="*60)
     
-    # Check if C++ bindings are available
-    try:
-        config = bten.LLaMAConfig.tinyllama_1_1b()
-        model = bten.LLaMAModelCpp(config, True)
-    except AttributeError:
-        print("C++ LLaMA bindings not available!")
-        print("You need to add llama_bindings.hpp to your bindings.cu")
-        return None
+    # Use same small config as Python for fair comparison
+    config = bten.LLaMAConfig()
+    config.vocab_size = 1000
+    config.hidden_size = 256
+    config.num_hidden_layers = 4
+    config.num_attention_heads = 8
+    config.num_key_value_heads = 2
+    config.intermediate_size = 256 * 4
+    
+    model = bten.LLaMAModelCpp(config, True)
     
     print("Model created successfully!")
     print(f"Parameters: {model.count_parameters() / 1e6:.1f}M")

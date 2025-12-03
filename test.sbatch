@@ -1,7 +1,6 @@
 #!/bin/bash
 
 #SBATCH --job-name=job_wgpu
-#SBATCH --open-mode=append
 #SBATCH --output=out/test.out
 #SBATCH --export=ALL
 #SBATCH --time=1:00:00
