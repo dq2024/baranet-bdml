@@ -6,8 +6,8 @@
 
 namespace py = pybind11;
 
-// Define the extern variable declared in op_elemwise.cuh
-unsigned long long randgen_seed = 42;
+// Declare as extern (defined in randgen.cu)
+extern unsigned long long randgen_seed;
 
 PYBIND11_MODULE(bten, m) {
   m.doc() = "Python bindings for Barenet (float32 or uint32 only for now)";

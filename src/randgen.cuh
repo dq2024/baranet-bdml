@@ -1,0 +1,1 @@
+unsigned long long randgen_seed = 42;
