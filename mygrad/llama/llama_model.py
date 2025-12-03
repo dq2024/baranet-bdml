@@ -6,8 +6,8 @@ import sys; sys.path.append("build")
 import bten
 from mygrad.engine import AGTensor, no_grad
 from mygrad.agtensor_llama import *
-from llama_config import LLaMAConfig
-from llama_layers import LLaMADecoderLayer, RMSNorm
+from mygrad.llama.llama_config import LLaMAConfig
+from mygrad.llama.llama_layers import LLaMADecoderLayer, RMSNorm
 from typing import Optional, List
 
 class LLaMAModel:

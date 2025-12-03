@@ -7,7 +7,7 @@ import sys; sys.path.append("build")
 import bten
 from mygrad.engine import AGTensor, no_grad
 from mygrad.agtensor_llama import *  # Import LLaMA-specific operations
-from llama_config import LLaMAConfig
+from mygrad.llama.llama_config import LLaMAConfig
 from typing import Optional, Tuple
 
 class RMSNorm:
