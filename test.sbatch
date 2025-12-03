@@ -11,7 +11,7 @@
 #SBATCH --requeue
 
 
-singularity exec --bind /scratch --nv --overlay  /scratch/[netid]/overlay-25GB-500K.ext3:rw /scratch/dq2024/cuda12.8.1-cudnn9.8.0-ubuntu24.04.2.sif /bin/bash -c "
+singularity exec --bind /scratch --nv --overlay  /scratch/dq2024/overlay-25GB-500K.ext3:rw /scratch/dq2024/cuda12.8.1-cudnn9.8.0-ubuntu24.04.2.sif /bin/bash -c "
 source /ext3/env.sh
 conda activate py311
 
