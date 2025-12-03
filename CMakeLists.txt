@@ -32,6 +32,7 @@ find_package(CUDAToolkit REQUIRED)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/utils)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/llama)
 
 # ---- Build the pybind11 extension ----
 enable_language(CUDA)

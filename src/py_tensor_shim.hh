@@ -12,6 +12,10 @@
 #include "ops/op_mm.cuh"
 #include "ops/op_reduction.cuh"
 #include "ops/op_cross_entropy.cuh"
+#include "ops/op_rmsnorm.cuh"
+#include "ops/op_rope.cuh"
+#include "ops/op_silu.cuh"
+#include "ops/op_softmax.cuh"
 
 namespace py = pybind11;
 
@@ -86,13 +90,6 @@ public:
   }
  
   // Interpret Python indexing syntax and return a sliced tensor view.
-  // the input index can be:
-  // - an integer (e.g. 3)
-  // - a slice (e.g. 2:5)
-  // - None (equivalent to :)
-  // - Ellipsis (equivalent to :)
-  // - a tuple of the above (e.g. (2:5, 3), (None, 4), (Ellipsis, 1:3))
-  // Only supports 2D tensors for now.
   PyTensor<T> getitem(py::object index) const {
     auto parse_dim = [&](py::handle obj, int dim_size) -> std::pair<int, int> {
       if (obj.is(py::ellipsis()) || obj.is_none()) {
@@ -216,6 +213,16 @@ void bind_tensor_type(py::module_ &m, const char* pyname) {
       op_relu_back<T>(me.t, dout.t, din.t);
       return din;
     }, py::arg("DOut"))
+    .def("silu", [](const Self &me) {
+      PyTensor<T> out(me.t.h, me.t.w, me.t.on_device);
+      op_silu<T>(me.t, out.t);
+      return out;
+    }, "SiLU (Swish) activation: x * sigmoid(x)")
+    .def("silu_back", [](const Self &me, const Self &dout) {
+      PyTensor<T> din(me.t.h, me.t.w, me.t.on_device);
+      op_silu_backward<T>(me.t, dout.t, din.t);
+      return din;
+    }, py::arg("DOut"), "Backward pass for SiLU")
     .def("sum", [](const Self &me, int axis=0) {
       // axis=0: sum over rows, output shape (1, w)
       // axis=1: sum over cols, output shape (h, 1)
@@ -244,5 +251,39 @@ void bind_tensor_type(py::module_ &m, const char* pyname) {
     }, py::arg("other"))
     .def("cross_entropy_loss", [](const Self &logits, const PyTensor<uint32_t> &labels, PyTensor<T> &d_logits) {
       return op_cross_entropy_loss<T,uint32_t>(logits.t, labels.t, d_logits.t);
-    }, py::arg("labels"), py::arg("d_logits"), "Compute cross-entropy loss and its gradient");
+    }, py::arg("labels"), py::arg("d_logits"), "Compute cross-entropy loss and its gradient")
+    .def("rmsnorm", [](const Self &me, const Self &weight, T eps) {
+      PyTensor<T> out(me.t.h, me.t.w, me.t.on_device);
+      op_rmsnorm<T>(me.t, weight.t, out.t, eps);
+      return out;
+    }, py::arg("weight"), py::arg("eps")=1e-6f, "RMS normalization")
+    .def("rmsnorm_back", [](const Self &me, const Self &weight, const Self &grad_out, 
+                             PyTensor<T> &grad_weight, T eps) {
+      PyTensor<T> grad_in(me.t.h, me.t.w, me.t.on_device);
+      op_rmsnorm_backward<T>(me.t, weight.t, grad_out.t, grad_in.t, grad_weight.t, eps);
+      return grad_in;
+    }, py::arg("weight"), py::arg("grad_out"), py::arg("grad_weight"), py::arg("eps")=1e-6f,
+       "RMS normalization backward pass")
+    .def("rope", [](const Self &me, int position_offset, int head_dim, T theta) {
+      PyTensor<T> out(me.t.h, me.t.w, me.t.on_device);
+      op_rope<T>(me.t, out.t, position_offset, head_dim, theta);
+      return out;
+    }, py::arg("position_offset")=0, py::arg("head_dim")=64, py::arg("theta")=10000.0f,
+       "Rotary position embeddings")
+    .def("rope_back", [](const Self &grad_out, int position_offset, int head_dim, T theta) {
+      PyTensor<T> grad_in(grad_out.t.h, grad_out.t.w, grad_out.t.on_device);
+      op_rope_backward<T>(grad_out.t, grad_in.t, position_offset, head_dim, theta);
+      return grad_in;
+    }, py::arg("position_offset")=0, py::arg("head_dim")=64, py::arg("theta")=10000.0f,
+       "RoPE backward pass")
+    .def("softmax", [](const Self &me, bool causal, int seq_offset) {
+      PyTensor<T> out(me.t.h, me.t.w, me.t.on_device);
+      op_softmax<T>(me.t, out.t, causal, seq_offset);
+      return out;
+    }, py::arg("causal")=false, py::arg("seq_offset")=0, "Softmax (optionally with causal mask)")
+    .def("softmax_back", [](const Self &output, const Self &grad_out) {
+      PyTensor<T> grad_in(output.t.h, output.t.w, output.t.on_device);
+      op_softmax_backward<T>(output.t, grad_out.t, grad_in.t);
+      return grad_in;
+    }, py::arg("grad_out"), "Softmax backward pass");
 }
