@@ -15,7 +15,7 @@ from typing import Dict, Any
 import json
 
 # Import our implementations
-from mygrad import bten
+import bten
 from mygrad.llama.llama_model import create_tinyllama_model
 from mygrad.llama.llama_config import LLaMAConfig
 
