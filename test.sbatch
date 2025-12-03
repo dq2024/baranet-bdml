@@ -4,9 +4,10 @@
 #SBATCH --account=csci_ga_3033-2025fa
 #SBATCH --partition=n1s8-t4-1
 #SBATCH --open-mode=append
-#SBATCH --output=test.out
+#SBATCH --output=.test.out
+#SBATCH --error=.test.err
 #SBATCH --export=ALL
-#SBATCH --time=01:00:00
+#SBATCH --time=1:00:00
 #SBATCH --gres=gpu:1
 
 
