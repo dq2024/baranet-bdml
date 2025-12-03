@@ -6,11 +6,11 @@ import numpy as np
 import sys
 sys.path.append("build")
 
-from agtensor import AGTensor, no_grad
-from agtensor_llama import *
-from llama_config import LLaMAConfig
-from llama_layers import RMSNorm, RotaryEmbedding, GroupedQueryAttention, MLP, LLaMADecoderLayer
-from llama_model import LLaMAModel, create_tinyllama_model
+from mygrad.engine import AGTensor, no_grad
+from mygrad.agtensor_llama import *
+from mygrad.llama.llama_config import LLaMAConfig
+from mygrad.llama.llama_layers import RMSNorm, RotaryEmbedding, GroupedQueryAttention, MLP, LLaMADecoderLayer
+from mygrad.llama.llama_model import LLaMAModel, create_tinyllama_model
 
 def test_rmsnorm():
     """Test RMSNorm layer"""
