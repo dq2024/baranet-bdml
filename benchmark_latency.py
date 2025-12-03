@@ -159,11 +159,22 @@ def print_results(name: str, results: Dict[str, Any]):
     print(f"\n{'='*60}")
     print(f"{name} Results")
     print('='*60)
-    print(f"Mean time:      {results['mean_time_ms']:.2f} ± {results.get('std_time_ms', 0):.2f} ms")
-    print(f"Min time:       {results.get('min_time_ms', 0):.2f} ms")
-    print(f"Max time:       {results.get('max_time_ms', 0):.2f} ms")
-    print(f"Throughput:     {results['tokens_per_second']:.2f} tokens/sec")
-    print(f"Parameters:     {results['num_parameters'] / 1e6:.1f}M")
+    
+    # Handle different key names (C++ uses forward_time_ms, Python uses mean_time_ms)
+    mean_time = results.get('mean_time_ms') or results.get('forward_time_ms', 0)
+    std_time = results.get('std_time_ms', 0)
+    min_time = results.get('min_time_ms', 0)
+    max_time = results.get('max_time_ms', 0)
+    throughput = results.get('tokens_per_second', 0)
+    params = results.get('num_parameters', 0)
+    
+    print(f"Mean time:      {mean_time:.2f}" + (f" ± {std_time:.2f}" if std_time > 0 else "") + " ms")
+    if min_time > 0:
+        print(f"Min time:       {min_time:.2f} ms")
+    if max_time > 0:
+        print(f"Max time:       {max_time:.2f} ms")
+    print(f"Throughput:     {throughput:.2f} tokens/sec")
+    print(f"Parameters:     {params / 1e6:.1f}M")
     
     if 'memory_used_bytes' in results:
         print(f"GPU Memory:     {results['memory_used_bytes'] / (1024**3):.2f} GB")
@@ -174,19 +185,38 @@ def compare_results(results: Dict[str, Dict[str, Any]]):
     print("Comparison")
     print("="*60)
     
+    # Find baseline (prefer pytorch, fallback to first available)
+    baseline = None
+    baseline_name = None
+    baseline_throughput = None
+    
     if 'pytorch' in results and results['pytorch'] is not None:
-        baseline = results['pytorch']['mean_time_ms']
+        baseline_name = 'pytorch'
+        baseline = results['pytorch'].get('mean_time_ms') or results['pytorch'].get('forward_time_ms')
         baseline_throughput = results['pytorch']['tokens_per_second']
-        
-        print(f"\nSpeedup vs PyTorch:")
+    else:
+        # Use first available as baseline
         for name, result in results.items():
-            if name == 'pytorch' or result is None:
-                continue
-            
-            speedup = baseline / result['mean_time_ms']
-            throughput_ratio = result['tokens_per_second'] / baseline_throughput
-            
-            print(f"  {name:20s}: {speedup:.2f}x faster ({throughput_ratio:.2f}x throughput)")
+            if result is not None:
+                baseline_name = name
+                baseline = result.get('mean_time_ms') or result.get('forward_time_ms')
+                baseline_throughput = result['tokens_per_second']
+                break
+    
+    if baseline is None:
+        print("No valid baseline found")
+        return
+    
+    print(f"\nSpeedup vs {baseline_name}:")
+    for name, result in results.items():
+        if name == baseline_name or result is None:
+            continue
+        
+        mean_time = result.get('mean_time_ms') or result.get('forward_time_ms')
+        speedup = baseline / mean_time
+        throughput_ratio = result['tokens_per_second'] / baseline_throughput
+        
+        print(f"  {name:20s}: {speedup:.2f}x faster ({throughput_ratio:.2f}x throughput)")
     
     print("\n" + "="*60)
 
