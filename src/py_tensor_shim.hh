@@ -10,12 +10,14 @@
 #include "utils/tensor.cuh"
 #include "ops/op_elemwise.cuh"
 #include "ops/op_mm.cuh"
+#include "ops/op_mm_optimized.cuh"
 #include "ops/op_reduction.cuh"
 #include "ops/op_cross_entropy.cuh"
 #include "ops/op_rmsnorm.cuh"
 #include "ops/op_rope.cuh"
 #include "ops/op_silu.cuh"
 #include "ops/op_softmax.cuh"
+#include "ops/op_attention_fused.cuh"
 
 namespace py = pybind11;
 

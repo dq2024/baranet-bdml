@@ -1,6 +1,10 @@
 #pragma once
 
-#define MM_BLOCK_DIM 32 
+#define MM_BLOCK_DIM 32
+
+// Forward declaration for optimized version
+template <typename T>
+void op_mm_optimized(const Tensor<T>& A, const Tensor<T>& B, Tensor<T>& C); 
 
 #include "utils/check_error.cuh"
 #include "utils/tensor.cuh"
@@ -38,8 +42,16 @@ void op_mm(const Tensor<T>& A, const Tensor<T>& B, Tensor<T>& C)
     ensure_mm_shape_device(A,B,C);
     //Lab-1: please complete this
     //You need to define separate kernel function(s) and launch them here
-    dim3 block_size(MM_BLOCK_DIM, MM_BLOCK_DIM);
+    
+    // Use optimized tiled version for better memory access patterns
+    // For small matrices, use simple kernel; for larger ones, use tiled
+    if (A.h >= 32 && A.w >= 32 && B.w >= 32) {
+        // Use optimized tiled version
+        op_mm_optimized(A, B, C);
+    } else {
+        // Use simple version for small matrices
+        dim3 block_size(MM_BLOCK_DIM, MM_BLOCK_DIM);
         dim3 grid_size((C.w + block_size.x - 1) / block_size.x, (C.h + block_size.y - 1) / block_size.y);
-        
         op_mm_kernel<<<grid_size, block_size>>>(A, B, C);
+    }
 }
