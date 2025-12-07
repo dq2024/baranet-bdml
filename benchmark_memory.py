@@ -40,9 +40,9 @@ def benchmark_python_memory(batch_size: int) -> Dict[str, Any]:
     print("Benchmarking Python Implementation Memory")
     print("="*60)
     
-    from agtensor import no_grad
-    from llama_model import create_tinyllama_model
-    from llama_config import LLaMAConfig
+    from mygrad.engine import no_grad
+    from mygrad.llama.llama_model import create_tinyllama_model
+    from mygrad.llama.llama_config import LLaMAConfig
     
     # Measure before
     mem_before = get_gpu_memory_usage()
