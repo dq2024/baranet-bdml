@@ -79,7 +79,6 @@ __global__ void op_attention_fused_kernel(
     }
     
     // Store local sum in shared memory for reduction
-    T* sum_shared = &shared_mem[seq_len];
     sum_shared[tid] = local_sum;
     __syncthreads();
     

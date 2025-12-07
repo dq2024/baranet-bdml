@@ -119,3 +119,4 @@ def is_checkpointed(layer_idx: int) -> bool:
     """Check if a layer is checkpointed"""
     return _gradient_checkpoint.should_checkpoint(layer_idx)
 
+

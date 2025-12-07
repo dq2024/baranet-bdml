@@ -192,3 +192,4 @@ python benchmark_memory.py --batch-size 1
 - Gradient Checkpointing: https://arxiv.org/abs/1604.06174
 - CUDA Best Practices: https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/
 
+
