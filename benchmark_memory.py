@@ -15,10 +15,15 @@ import json
 
 def get_gpu_memory_usage():
     """Get current GPU memory usage in bytes"""
+    # Try pynvml first (most accurate for custom CUDA allocations)
     try:
-        import torch
-        if torch.cuda.is_available():
-            return torch.cuda.memory_allocated()
+        import pynvml
+        if not hasattr(get_gpu_memory_usage, 'initialized'):
+            pynvml.nvmlInit()
+            get_gpu_memory_usage.initialized = True
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        return info.used
     except:
         pass
     
@@ -30,9 +35,20 @@ def get_gpu_memory_usage():
             capture_output=True,
             text=True
         )
-        return int(result.stdout.strip()) * 1024 * 1024  # Convert MB to bytes
+        return int(result.stdout.strip().split('\n')[0]) * 1024 * 1024  # Convert MB to bytes
     except:
-        return 0
+        pass
+    
+    # Last resort: try torch (won't capture custom CUDA allocations)
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            return torch.cuda.memory_allocated()
+    except:
+        pass
+    
+    return 0
 
 def benchmark_python_memory(batch_size: int) -> Dict[str, Any]:
     """Benchmark Python implementation memory"""
@@ -195,7 +211,10 @@ def print_results(name: str, results: Dict[str, Any]):
     print(f"Model memory:       {results['model_memory_mb']:.2f} MB")
     print(f"Activation memory:  {results['activation_memory_mb']:.2f} MB")
     print(f"Peak memory:        {results['peak_memory_mb']:.2f} MB")
-    print(f"Memory efficiency:  {results['model_memory_mb'] / results['peak_memory_mb'] * 100:.1f}%")
+    if results['peak_memory_mb'] > 0:
+        print(f"Memory efficiency:  {results['model_memory_mb'] / results['peak_memory_mb'] * 100:.1f}%")
+    else:
+        print(f"Memory efficiency:  N/A (memory measurement unavailable)")
 
 def compare_memory(results: Dict[str, Dict[str, Any]]):
     """Compare memory usage across implementations"""
