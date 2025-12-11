@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=job_wgpu
-#SBATCH --output=out/test.out
+#SBATCH --output=out/test2.out
 #SBATCH --export=ALL
 #SBATCH --time=1:00:00
 #SBATCH --gres=gpu:1
