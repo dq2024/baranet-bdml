@@ -16,7 +16,7 @@ import json
 
 # Import our implementations
 import bten
-from llama_pytorch import create_tinyllama_model
+from llama_pytorch import create_tinyllama_pytorch
 from src.llama import LLaMAConfig
 
 def benchmark_python_impl(batch_size: int, num_warmup: int = 5, num_iterations: int = 100) -> Dict[str, Any]:
