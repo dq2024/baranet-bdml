@@ -33,21 +33,22 @@ class RotaryEmbedding(nn.Module):
         self.max_seq_len = max_seq_len
         self.base = base
         
-        # Precompute frequencies
+        # Precompute frequencies - use only half of dim for cos/sin
         inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
         self.register_buffer("inv_freq", inv_freq)
         
         # Build cache
         t = torch.arange(max_seq_len, dtype=torch.float32)
         freqs = torch.outer(t, inv_freq)
-        emb = torch.cat((freqs, freqs), dim=-1)
-        self.register_buffer("cos_cached", emb.cos()[None, :, None, :])
-        self.register_buffer("sin_cached", emb.sin()[None, :, None, :])
+        # Don't concatenate - just use freqs directly
+        self.register_buffer("cos_cached", freqs.cos()[None, :, None, :])
+        self.register_buffer("sin_cached", freqs.sin()[None, :, None, :])
 
     def forward(self, x: torch.Tensor, seq_len: int) -> torch.Tensor:
         # x: (batch, seq_len, num_heads, head_dim)
-        cos = self.cos_cached[:, :seq_len, :, :]
-        sin = self.sin_cached[:, :seq_len, :, :]
+        # Only take the portion we need
+        cos = self.cos_cached[:, :seq_len, :, :x.size(-1)//2]
+        sin = self.sin_cached[:, :seq_len, :, :x.size(-1)//2]
         
         # Split into first and second half
         x1, x2 = x.chunk(2, dim=-1)

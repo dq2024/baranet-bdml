@@ -158,14 +158,34 @@ def print_results(name: str, results: Dict[str, Any]):
         print(f"\n{name}: Not available")
         return
     
+    # Check if results dict is empty or invalid
+    if not results or not isinstance(results, dict):
+        print(f"\n{name}: Invalid results")
+        return
+    
     print(f"\n{'='*60}")
     print(f"{name} Results")
     print('='*60)
-    print(f"Mean time:      {results['mean_time_ms']:.2f} ± {results.get('std_time_ms', 0):.2f} ms")
-    print(f"Min time:       {results.get('min_time_ms', 0):.2f} ms")
-    print(f"Max time:       {results.get('max_time_ms', 0):.2f} ms")
-    print(f"Throughput:     {results['tokens_per_second']:.2f} tokens/sec")
-    print(f"Parameters:     {results['num_parameters'] / 1e6:.1f}M")
+    
+    # Handle different key names safely
+    mean_time = results.get('mean_time_ms', results.get('forward_time_ms', 0))
+    if mean_time == 0:
+        print("No timing data available")
+        return
+        
+    std_time = results.get('std_time_ms', 0)
+    min_time = results.get('min_time_ms', 0)
+    max_time = results.get('max_time_ms', 0)
+    throughput = results.get('tokens_per_second', 0)
+    params = results.get('num_parameters', 0)
+    
+    print(f"Mean time:      {mean_time:.2f}" + (f" ± {std_time:.2f}" if std_time > 0 else "") + " ms")
+    if min_time > 0:
+        print(f"Min time:       {min_time:.2f} ms")
+    if max_time > 0:
+        print(f"Max time:       {max_time:.2f} ms")
+    print(f"Throughput:     {throughput:.2f} tokens/sec")
+    print(f"Parameters:     {params / 1e6:.1f}M")
     
     if 'memory_used_bytes' in results:
         print(f"GPU Memory:     {results['memory_used_bytes'] / (1024**3):.2f} GB")
