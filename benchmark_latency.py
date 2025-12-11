@@ -16,8 +16,8 @@ import json
 
 # Import our implementations
 import bten
-from llama_model import create_tinyllama_model
-from llama_config import LLaMAConfig
+from llama_pytorch import create_tinyllama_model
+from src.llama import LLaMAConfig
 
 def benchmark_python_impl(batch_size: int, num_warmup: int = 5, num_iterations: int = 100) -> Dict[str, Any]:
     """Benchmark Python implementation"""
