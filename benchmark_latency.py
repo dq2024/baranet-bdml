@@ -16,8 +16,8 @@ import json
 
 # Import our implementations
 import bten
-from mygrad.llama.llama_model import create_tinyllama_model
-from mygrad.llama.llama_config import LLaMAConfig
+from llama_model import create_tinyllama_model
+from llama_config import LLaMAConfig
 
 def benchmark_python_impl(batch_size: int, num_warmup: int = 5, num_iterations: int = 100) -> Dict[str, Any]:
     """Benchmark Python implementation"""
@@ -25,7 +25,7 @@ def benchmark_python_impl(batch_size: int, num_warmup: int = 5, num_iterations: 
     print("Benchmarking Python Implementation")
     print("="*60)
     
-    from mygrad.engine import no_grad
+    from agtensor import no_grad
     
     # Create model
     print("Creating model...")
@@ -103,20 +103,22 @@ def benchmark_pytorch(batch_size: int, num_warmup: int = 5, num_iterations: int 
     
     try:
         import torch
-        from transformers import AutoModelForCausalLM, AutoConfig
     except ImportError:
-        print("PyTorch/Transformers not available!")
+        print("PyTorch not available!")
         return None
     
-    # Create TinyLLaMA config
-    print("Loading model...")
-    config = AutoConfig.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
-    model = AutoModelForCausalLM.from_config(config)
-    model = model.cuda()
-    model.eval()
+    try:
+        from llama_pytorch import create_tinyllama_pytorch
+    except ImportError:
+        print("llama_pytorch.py not found! Make sure it's in the same directory.")
+        return None
+    
+    # Create TinyLLaMA model
+    print("Creating model...")
+    model = create_tinyllama_pytorch(device='cuda')
     
     # Create input
-    input_ids = torch.randint(0, config.vocab_size, (batch_size,), device='cuda')
+    input_ids = torch.randint(0, 32000, (batch_size,), device='cuda')
     
     # Warmup
     print(f"Warmup: {num_warmup} iterations...")
@@ -145,7 +147,7 @@ def benchmark_pytorch(batch_size: int, num_warmup: int = 5, num_iterations: int 
         'min_time_ms': float(np.min(times)),
         'max_time_ms': float(np.max(times)),
         'tokens_per_second': batch_size * 1000 / np.mean(times),
-        'num_parameters': sum(p.numel() for p in model.parameters()),
+        'num_parameters': model.count_parameters(),
     }
     
     return result
@@ -159,22 +161,11 @@ def print_results(name: str, results: Dict[str, Any]):
     print(f"\n{'='*60}")
     print(f"{name} Results")
     print('='*60)
-    
-    # Handle different key names (C++ uses forward_time_ms, Python uses mean_time_ms)
-    mean_time = results.get('mean_time_ms') or results.get('forward_time_ms', 0)
-    std_time = results.get('std_time_ms', 0)
-    min_time = results.get('min_time_ms', 0)
-    max_time = results.get('max_time_ms', 0)
-    throughput = results.get('tokens_per_second', 0)
-    params = results.get('num_parameters', 0)
-    
-    print(f"Mean time:      {mean_time:.2f}" + (f" ± {std_time:.2f}" if std_time > 0 else "") + " ms")
-    if min_time > 0:
-        print(f"Min time:       {min_time:.2f} ms")
-    if max_time > 0:
-        print(f"Max time:       {max_time:.2f} ms")
-    print(f"Throughput:     {throughput:.2f} tokens/sec")
-    print(f"Parameters:     {params / 1e6:.1f}M")
+    print(f"Mean time:      {results['mean_time_ms']:.2f} ± {results.get('std_time_ms', 0):.2f} ms")
+    print(f"Min time:       {results.get('min_time_ms', 0):.2f} ms")
+    print(f"Max time:       {results.get('max_time_ms', 0):.2f} ms")
+    print(f"Throughput:     {results['tokens_per_second']:.2f} tokens/sec")
+    print(f"Parameters:     {results['num_parameters'] / 1e6:.1f}M")
     
     if 'memory_used_bytes' in results:
         print(f"GPU Memory:     {results['memory_used_bytes'] / (1024**3):.2f} GB")
@@ -185,38 +176,19 @@ def compare_results(results: Dict[str, Dict[str, Any]]):
     print("Comparison")
     print("="*60)
     
-    # Find baseline (prefer pytorch, fallback to first available)
-    baseline = None
-    baseline_name = None
-    baseline_throughput = None
-    
     if 'pytorch' in results and results['pytorch'] is not None:
-        baseline_name = 'pytorch'
-        baseline = results['pytorch'].get('mean_time_ms') or results['pytorch'].get('forward_time_ms')
+        baseline = results['pytorch']['mean_time_ms']
         baseline_throughput = results['pytorch']['tokens_per_second']
-    else:
-        # Use first available as baseline
+        
+        print(f"\nSpeedup vs PyTorch:")
         for name, result in results.items():
-            if result is not None:
-                baseline_name = name
-                baseline = result.get('mean_time_ms') or result.get('forward_time_ms')
-                baseline_throughput = result['tokens_per_second']
-                break
-    
-    if baseline is None:
-        print("No valid baseline found")
-        return
-    
-    print(f"\nSpeedup vs {baseline_name}:")
-    for name, result in results.items():
-        if name == baseline_name or result is None:
-            continue
-        
-        mean_time = result.get('mean_time_ms') or result.get('forward_time_ms')
-        speedup = baseline / mean_time
-        throughput_ratio = result['tokens_per_second'] / baseline_throughput
-        
-        print(f"  {name:20s}: {speedup:.2f}x faster ({throughput_ratio:.2f}x throughput)")
+            if name == 'pytorch' or result is None:
+                continue
+            
+            speedup = baseline / result['mean_time_ms']
+            throughput_ratio = result['tokens_per_second'] / baseline_throughput
+            
+            print(f"  {name:20s}: {speedup:.2f}x faster ({throughput_ratio:.2f}x throughput)")
     
     print("\n" + "="*60)
 
