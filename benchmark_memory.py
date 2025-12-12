@@ -153,19 +153,34 @@ def benchmark_pytorch_memory(batch_size: int) -> Dict[str, Any]:
         print("PyTorch/Transformers not available!")
         return None
     
+    # Check if CUDA is available
+    if not torch.cuda.is_available():
+        print("PyTorch CUDA not available! Skipping...")
+        return None
+    
     # Clear cache
-    torch.cuda.empty_cache()
-    torch.cuda.reset_peak_memory_stats()
+    try:
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+    except Exception as e:
+        print(f"PyTorch CUDA error: {e}")
+        print("Skipping PyTorch benchmark (CUDA version mismatch)")
+        return None
     
     # Measure before
     mem_before = torch.cuda.memory_allocated()
     
     # Create model
     print("Loading model...")
-    config = AutoConfig.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
-    model = AutoModelForCausalLM.from_config(config)
-    model = model.cuda()
-    model.eval()
+    try:
+        config = AutoConfig.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+        model = AutoModelForCausalLM.from_config(config)
+        model = model.cuda()
+        model.eval()
+    except (RuntimeError, torch.cuda.CudaError) as e:
+        print(f"PyTorch CUDA error: {e}")
+        print("Skipping PyTorch benchmark (CUDA version mismatch)")
+        return None
     
     # Measure after model creation
     mem_after_model = torch.cuda.memory_allocated()

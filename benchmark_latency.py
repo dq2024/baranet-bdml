@@ -1,278 +1,292 @@
-"""
-Benchmark LLaMA implementations and compare with PyTorch
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import math
+from typing import Optional
 
-Usage:
-    python scripts/benchmark_latency.py --batch-size 1 --iterations 100
-"""
 
-import sys
-sys.path.append("build")
+class RMSNorm(nn.Module):
+    """Root Mean Square Layer Normalization"""
+    def _init_(self, dim: int, eps: float = 1e-6):
+        super()._init_()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
 
-import numpy as np
-import time
-import argparse
-from typing import Dict, Any
-import json
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (batch, seq_len, dim)
+        norm = torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+        return x * norm * self.weight
 
-# Import our implementations
-import bten
-from mygrad.llama.llama_model import create_tinyllama_model
-from mygrad.llama.llama_config import LLaMAConfig
 
-def benchmark_python_impl(batch_size: int, num_warmup: int = 5, num_iterations: int = 100) -> Dict[str, Any]:
-    """Benchmark Python implementation"""
-    print("\n" + "="*60)
-    print("Benchmarking Python Implementation")
-    print("="*60)
-    
-    from mygrad.engine import no_grad
-    
-    # Create model
-    print("Creating model...")
-    from mygrad.engine import no_grad
-    
-    # Create full TinyLLaMA model
-    print("Creating model...")
-    model = create_tinyllama_model(is_cuda=True)
-    config = model.config
-    
-    # Create input
-    input_ids = np.random.randint(0, config.vocab_size, size=batch_size, dtype=np.uint32)
-    
-    # Warmup
-    print(f"Warmup: {num_warmup} iterations...")
-    with no_grad():
-        for _ in range(num_warmup):
-            _ = model(input_ids)
-    
-    # Benchmark
-    print(f"Benchmarking: {num_iterations} iterations...")
-    times = []
-    
-    with no_grad():
-        for _ in range(num_iterations):
-            start = time.perf_counter()
-            logits = model(input_ids)
-            end = time.perf_counter()
-            times.append((end - start) * 1000)  # Convert to ms
-    
-    # Compute statistics
-    times = np.array(times)
-    result = {
-        'mean_time_ms': float(np.mean(times)),
-        'std_time_ms': float(np.std(times)),
-        'min_time_ms': float(np.min(times)),
-        'max_time_ms': float(np.max(times)),
-        'tokens_per_second': batch_size * 1000 / np.mean(times),
-        'num_parameters': model.count_parameters(),
-    }
-    
-    return result
+class RotaryEmbedding(nn.Module):
+    """Rotary Position Embedding (RoPE)"""
+    def _init_(self, dim: int, max_seq_len: int = 2048, base: float = 10000.0):
+        super()._init_()
+        self.dim = dim
+        self.max_seq_len = max_seq_len
+        self.base = base
+        
+        # Precompute frequencies - use only half of dim for cos/sin
+        inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
+        self.register_buffer("inv_freq", inv_freq)
+        
+        # Build cache
+        t = torch.arange(max_seq_len, dtype=torch.float32)
+        freqs = torch.outer(t, inv_freq)
+        # Don't concatenate - just use freqs directly
+        self.register_buffer("cos_cached", freqs.cos()[None, :, None, :])
+        self.register_buffer("sin_cached", freqs.sin()[None, :, None, :])
 
-def benchmark_cpp_impl(batch_size: int, num_warmup: int = 5, num_iterations: int = 100) -> Dict[str, Any]:
-    """Benchmark C++ implementation"""
-    print("\n" + "="*60)
-    print("Benchmarking C++ Implementation")
-    print("="*60)
-    
-    # Check if C++ bindings are available
-    try:
-        config = bten.LLaMAConfig.tinyllama_1_1b()
-        model = bten.LLaMAModelCpp(config, True)
-    except AttributeError:
-        print("C++ LLaMA bindings not available!")
-        print("You need to add llama_bindings.hpp to your bindings.cu")
-        return None
-    
-    print("Model created successfully!")
-    print(f"Parameters: {model.count_parameters() / 1e6:.1f}M")
-    
-    # Run benchmark
-    print(f"Running benchmark...")
-    result = model.benchmark(batch_size, num_warmup, num_iterations)
-    
-    return result
+    def forward(self, x: torch.Tensor, seq_len: int) -> torch.Tensor:
+        # x: (batch, seq_len, num_heads, head_dim)
+        # Only take the portion we need
+        cos = self.cos_cached[:, :seq_len, :, :x.size(-1)//2]
+        sin = self.sin_cached[:, :seq_len, :, :x.size(-1)//2]
+        
+        # Split into first and second half
+        x1, x2 = x.chunk(2, dim=-1)
+        
+        # Apply rotation
+        y1 = x1 * cos - x2 * sin
+        y2 = x1 * sin + x2 * cos
+        
+        return torch.cat((y1, y2), dim=-1)
 
-def benchmark_pytorch(batch_size: int, num_warmup: int = 5, num_iterations: int = 100) -> Dict[str, Any]:
-    """Benchmark PyTorch implementation"""
-    print("\n" + "="*60)
-    print("Benchmarking PyTorch Implementation")
-    print("="*60)
-    
-    try:
-        import torch
-        from transformers import AutoModelForCausalLM, AutoConfig
-    except ImportError:
-        print("PyTorch/Transformers not available!")
-        return None
-    
-    # Create TinyLLaMA config
-    print("Loading model...")
-    config = AutoConfig.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
-    model = AutoModelForCausalLM.from_config(config)
-    model = model.cuda()
+
+class GroupedQueryAttention(nn.Module):
+    """Grouped Query Attention with KV cache support"""
+    def _init_(
+        self,
+        hidden_size: int,
+        num_heads: int,
+        num_kv_heads: int,
+        head_dim: int,
+    ):
+        super()._init_()
+        self.hidden_size = hidden_size
+        self.num_heads = num_heads
+        self.num_kv_heads = num_kv_heads
+        self.head_dim = head_dim
+        self.num_kv_groups = num_heads // num_kv_heads
+        
+        # Q, K, V projections
+        self.q_proj = nn.Linear(hidden_size, num_heads * head_dim, bias=False)
+        self.k_proj = nn.Linear(hidden_size, num_kv_heads * head_dim, bias=False)
+        self.v_proj = nn.Linear(hidden_size, num_kv_heads * head_dim, bias=False)
+        self.o_proj = nn.Linear(num_heads * head_dim, hidden_size, bias=False)
+        
+        self.rope = RotaryEmbedding(head_dim)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        batch_size, seq_len, _ = x.shape
+        
+        # Project Q, K, V
+        q = self.q_proj(x).view(batch_size, seq_len, self.num_heads, self.head_dim)
+        k = self.k_proj(x).view(batch_size, seq_len, self.num_kv_heads, self.head_dim)
+        v = self.v_proj(x).view(batch_size, seq_len, self.num_kv_heads, self.head_dim)
+        
+        # Apply RoPE
+        q = self.rope(q, seq_len)
+        k = self.rope(k, seq_len)
+        
+        # Repeat KV heads for grouped query attention
+        if self.num_kv_groups > 1:
+            k = k.repeat_interleave(self.num_kv_groups, dim=2)
+            v = v.repeat_interleave(self.num_kv_groups, dim=2)
+        
+        # Transpose for attention: (batch, num_heads, seq_len, head_dim)
+        q = q.transpose(1, 2)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
+        
+        # Scaled dot-product attention
+        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+        
+        # Apply causal mask
+        if attention_mask is None:
+            attention_mask = torch.triu(
+                torch.ones(seq_len, seq_len, dtype=torch.bool, device=x.device),
+                diagonal=1
+            )
+        scores = scores.masked_fill(attention_mask, float('-inf'))
+        
+        attn_weights = F.softmax(scores, dim=-1)
+        attn_output = torch.matmul(attn_weights, v)
+        
+        # Transpose back and reshape
+        attn_output = attn_output.transpose(1, 2).contiguous()
+        attn_output = attn_output.view(batch_size, seq_len, self.num_heads * self.head_dim)
+        
+        # Output projection
+        return self.o_proj(attn_output)
+
+
+class MLP(nn.Module):
+    """MLP with SiLU activation (SwiGLU variant)"""
+    def _init_(self, hidden_size: int, intermediate_size: int):
+        super()._init_()
+        self.gate_proj = nn.Linear(hidden_size, intermediate_size, bias=False)
+        self.up_proj = nn.Linear(hidden_size, intermediate_size, bias=False)
+        self.down_proj = nn.Linear(intermediate_size, hidden_size, bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # SwiGLU: gate_proj(x) * SiLU(up_proj(x))
+        return self.down_proj(F.silu(self.gate_proj(x)) * self.up_proj(x))
+
+
+class LLaMADecoderLayer(nn.Module):
+    """Single LLaMA decoder layer"""
+    def _init_(
+        self,
+        hidden_size: int,
+        num_heads: int,
+        num_kv_heads: int,
+        intermediate_size: int,
+        head_dim: int,
+        rms_norm_eps: float = 1e-6,
+    ):
+        super()._init_()
+        self.input_layernorm = RMSNorm(hidden_size, eps=rms_norm_eps)
+        self.self_attn = GroupedQueryAttention(
+            hidden_size=hidden_size,
+            num_heads=num_heads,
+            num_kv_heads=num_kv_heads,
+            head_dim=head_dim,
+        )
+        self.post_attention_layernorm = RMSNorm(hidden_size, eps=rms_norm_eps)
+        self.mlp = MLP(hidden_size, intermediate_size)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        # Self attention with residual
+        residual = x
+        x = self.input_layernorm(x)
+        x = self.self_attn(x, attention_mask)
+        x = residual + x
+        
+        # MLP with residual
+        residual = x
+        x = self.post_attention_layernorm(x)
+        x = self.mlp(x)
+        x = residual + x
+        
+        return x
+
+
+class LLaMAModel(nn.Module):
+    """Full LLaMA model"""
+    def _init_(
+        self,
+        vocab_size: int = 32000,
+        hidden_size: int = 2048,
+        intermediate_size: int = 5632,
+        num_hidden_layers: int = 22,
+        num_attention_heads: int = 32,
+        num_key_value_heads: int = 4,
+        rms_norm_eps: float = 1e-6,
+        max_seq_len: int = 2048,
+    ):
+        super()._init_()
+        self.vocab_size = vocab_size
+        self.hidden_size = hidden_size
+        self.num_hidden_layers = num_hidden_layers
+        
+        head_dim = hidden_size // num_attention_heads
+        
+        # Embedding
+        self.embed_tokens = nn.Embedding(vocab_size, hidden_size)
+        
+        # Decoder layers
+        self.layers = nn.ModuleList([
+            LLaMADecoderLayer(
+                hidden_size=hidden_size,
+                num_heads=num_attention_heads,
+                num_kv_heads=num_key_value_heads,
+                intermediate_size=intermediate_size,
+                head_dim=head_dim,
+                rms_norm_eps=rms_norm_eps,
+            )
+            for _ in range(num_hidden_layers)
+        ])
+        
+        # Final layer norm
+        self.norm = RMSNorm(hidden_size, eps=rms_norm_eps)
+        
+        # LM head
+        self.lm_head = nn.Linear(hidden_size, vocab_size, bias=False)
+        
+        # Tie weights
+        self.lm_head.weight = self.embed_tokens.weight
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        # input_ids: (batch_size,) or (batch_size, seq_len)
+        if input_ids.dim() == 1:
+            input_ids = input_ids.unsqueeze(1)
+        
+        batch_size, seq_len = input_ids.shape
+        
+        # Embed tokens
+        x = self.embed_tokens(input_ids)
+        
+        # Apply decoder layers
+        for layer in self.layers:
+            x = layer(x, attention_mask)
+        
+        # Final norm
+        x = self.norm(x)
+        
+        # LM head
+        logits = self.lm_head(x)
+        
+        # Return only the last token logits for generation
+        return logits[:, -1, :]
+
+    def count_parameters(self) -> int:
+        """Count total number of parameters"""
+        return sum(p.numel() for p in self.parameters())
+
+
+def create_tinyllama_pytorch(device: str = 'cuda') -> LLaMAModel:
+    """Create TinyLLaMA 1.1B model matching our custom implementation"""
+    model = LLaMAModel(
+        vocab_size=32000,
+        hidden_size=2048,
+        intermediate_size=5632,
+        num_hidden_layers=22,
+        num_attention_heads=32,
+        num_key_value_heads=4,
+        rms_norm_eps=1e-5,
+        max_seq_len=2048,
+    )
+    model = model.to(device)
     model.eval()
     
-    # Create input
-    input_ids = torch.randint(0, config.vocab_size, (batch_size,), device='cuda')
+    print(f"Created PyTorch TinyLLaMA model")
+    print(f"Total parameters: {model.count_parameters():,}")
     
-    # Warmup
-    print(f"Warmup: {num_warmup} iterations...")
+    return model
+
+
+if _name_ == "_main_":
+    # Test the model
+    model = create_tinyllama_pytorch()
+    
+    # Test forward pass
+    input_ids = torch.randint(0, 32000, (1,), device='cuda')
     with torch.no_grad():
-        for _ in range(num_warmup):
-            _ = model(input_ids)
+        logits = model(input_ids)
     
-    # Benchmark
-    print(f"Benchmarking: {num_iterations} iterations...")
-    times = []
-    
-    with torch.no_grad():
-        for _ in range(num_iterations):
-            torch.cuda.synchronize()
-            start = time.perf_counter()
-            _ = model(input_ids)
-            torch.cuda.synchronize()
-            end = time.perf_counter()
-            times.append((end - start) * 1000)
-    
-    # Compute statistics
-    times = np.array(times)
-    result = {
-        'mean_time_ms': float(np.mean(times)),
-        'std_time_ms': float(np.std(times)),
-        'min_time_ms': float(np.min(times)),
-        'max_time_ms': float(np.max(times)),
-        'tokens_per_second': batch_size * 1000 / np.mean(times),
-        'num_parameters': sum(p.numel() for p in model.parameters()),
-    }
-    
-    return result
-
-def print_results(name: str, results: Dict[str, Any]):
-    """Print benchmark results"""
-    if results is None:
-        print(f"\n{name}: Not available")
-        return
-    
-    print(f"\n{'='*60}")
-    print(f"{name} Results")
-    print('='*60)
-    
-    # Handle different key names (C++ uses forward_time_ms, Python uses mean_time_ms)
-    mean_time = results.get('mean_time_ms') or results.get('forward_time_ms', 0)
-    std_time = results.get('std_time_ms', 0)
-    min_time = results.get('min_time_ms', 0)
-    max_time = results.get('max_time_ms', 0)
-    throughput = results.get('tokens_per_second', 0)
-    params = results.get('num_parameters', 0)
-    
-    print(f"Mean time:      {mean_time:.2f}" + (f" ± {std_time:.2f}" if std_time > 0 else "") + " ms")
-    if min_time > 0:
-        print(f"Min time:       {min_time:.2f} ms")
-    if max_time > 0:
-        print(f"Max time:       {max_time:.2f} ms")
-    print(f"Throughput:     {throughput:.2f} tokens/sec")
-    print(f"Parameters:     {params / 1e6:.1f}M")
-    
-    if 'memory_used_bytes' in results:
-        print(f"GPU Memory:     {results['memory_used_bytes'] / (1024**3):.2f} GB")
-
-def compare_results(results: Dict[str, Dict[str, Any]]):
-    """Compare results across implementations"""
-    print("\n" + "="*60)
-    print("Comparison")
-    print("="*60)
-    
-    # Find baseline (prefer pytorch, fallback to first available)
-    baseline = None
-    baseline_name = None
-    baseline_throughput = None
-    
-    if 'pytorch' in results and results['pytorch'] is not None:
-        baseline_name = 'pytorch'
-        baseline = results['pytorch'].get('mean_time_ms') or results['pytorch'].get('forward_time_ms')
-        baseline_throughput = results['pytorch']['tokens_per_second']
-    else:
-        # Use first available as baseline
-        for name, result in results.items():
-            if result is not None:
-                baseline_name = name
-                baseline = result.get('mean_time_ms') or result.get('forward_time_ms')
-                baseline_throughput = result['tokens_per_second']
-                break
-    
-    if baseline is None:
-        print("No valid baseline found")
-        return
-    
-    print(f"\nSpeedup vs {baseline_name}:")
-    for name, result in results.items():
-        if name == baseline_name or result is None:
-            continue
-        
-        mean_time = result.get('mean_time_ms') or result.get('forward_time_ms')
-        speedup = baseline / mean_time
-        throughput_ratio = result['tokens_per_second'] / baseline_throughput
-        
-        print(f"  {name:20s}: {speedup:.2f}x faster ({throughput_ratio:.2f}x throughput)")
-    
-    print("\n" + "="*60)
-
-def main():
-    parser = argparse.ArgumentParser(description='Benchmark LLaMA implementations')
-    parser.add_argument('--batch-size', type=int, default=1, help='Batch size')
-    parser.add_argument('--warmup', type=int, default=5, help='Warmup iterations')
-    parser.add_argument('--iterations', type=int, default=100, help='Benchmark iterations')
-    parser.add_argument('--skip-pytorch', action='store_true', help='Skip PyTorch benchmark')
-    parser.add_argument('--skip-python', action='store_true', help='Skip Python implementation')
-    parser.add_argument('--skip-cpp', action='store_true', help='Skip C++ implementation')
-    parser.add_argument('--output', type=str, help='Output JSON file for results')
-    
-    args = parser.parse_args()
-    
-    print("TinyLLaMA Benchmark")
-    print("="*60)
-    print(f"Configuration:")
-    print(f"  Batch size:    {args.batch_size}")
-    print(f"  Warmup:        {args.warmup}")
-    print(f"  Iterations:    {args.iterations}")
-    
-    results = {}
-    
-    # Benchmark implementations
-    if not args.skip_python:
-        try:
-            results['python'] = benchmark_python_impl(args.batch_size, args.warmup, args.iterations)
-        except Exception as e:
-            print(f"Python benchmark failed: {e}")
-            results['python'] = None
-    
-    if not args.skip_cpp:
-        try:
-            results['cpp'] = benchmark_cpp_impl(args.batch_size, args.warmup, args.iterations)
-        except Exception as e:
-            print(f"C++ benchmark failed: {e}")
-            results['cpp'] = None
-    
-    if not args.skip_pytorch:
-        try:
-            results['pytorch'] = benchmark_pytorch(args.batch_size, args.warmup, args.iterations)
-        except Exception as e:
-            print(f"PyTorch benchmark failed: {e}")
-            results['pytorch'] = None
-    
-    # Print results
-    for name, result in results.items():
-        print_results(name.capitalize(), result)
-    
-    # Compare
-    compare_results(results)
-    
-    # Save to file
-    if args.output:
-        with open(args.output, 'w') as f:
-            json.dump(results, f, indent=2)
-        print(f"\nResults saved to {args.output}")
-
-if __name__ == "__main__":
-    main()
+    print(f"Input shape: {input_ids.shape}")
+    print(f"Output shape: {logits.shape}")
+    print("Model test passed!")
