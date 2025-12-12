@@ -196,19 +196,44 @@ def compare_results(results: Dict[str, Dict[str, Any]]):
     print("Comparison")
     print("="*60)
     
+    # Find baseline (prefer pytorch, fallback to first available)
+    baseline = None
+    baseline_name = None
+    baseline_throughput = None
+    
     if 'pytorch' in results and results['pytorch'] is not None:
-        baseline = results['pytorch']['mean_time_ms']
+        baseline_name = 'pytorch'
+        baseline = results['pytorch'].get('mean_time_ms') or results['pytorch'].get('forward_time_ms')
         baseline_throughput = results['pytorch']['tokens_per_second']
-        
-        print(f"\nSpeedup vs PyTorch:")
+    else:
+        # Use first available as baseline
         for name, result in results.items():
-            if name == 'pytorch' or result is None:
-                continue
+            if result is not None and isinstance(result, dict):
+                baseline_name = name
+                baseline = result.get('mean_time_ms') or result.get('forward_time_ms')
+                baseline_throughput = result.get('tokens_per_second', 0)
+                if baseline and baseline > 0:
+                    break
+    
+    if baseline is None or baseline == 0:
+        print("No valid baseline found")
+        return
+    
+    print(f"\nSpeedup vs {baseline_name}:")
+    for name, result in results.items():
+        if name == baseline_name or result is None or not isinstance(result, dict):
+            continue
+        
+        mean_time = result.get('mean_time_ms') or result.get('forward_time_ms', 0)
+        throughput = result.get('tokens_per_second', 0)
+        
+        if mean_time == 0 or throughput == 0:
+            continue
             
-            speedup = baseline / result['mean_time_ms']
-            throughput_ratio = result['tokens_per_second'] / baseline_throughput
-            
-            print(f"  {name:20s}: {speedup:.2f}x faster ({throughput_ratio:.2f}x throughput)")
+        speedup = baseline / mean_time
+        throughput_ratio = throughput / baseline_throughput
+        
+        print(f"  {name:20s}: {speedup:.2f}x faster ({throughput_ratio:.2f}x throughput)")
     
     print("\n" + "="*60)
 
