@@ -7,8 +7,8 @@ from typing import Optional
 
 class RMSNorm(nn.Module):
     """Root Mean Square Layer Normalization"""
-    def _init_(self, dim: int, eps: float = 1e-6):
-        super()._init_()
+    def __init__(self, dim: int, eps: float = 1e-6):
+        super().__init__()
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(dim))
 
@@ -20,8 +20,8 @@ class RMSNorm(nn.Module):
 
 class RotaryEmbedding(nn.Module):
     """Rotary Position Embedding (RoPE)"""
-    def _init_(self, dim: int, max_seq_len: int = 2048, base: float = 10000.0):
-        super()._init_()
+    def __init__(self, dim: int, max_seq_len: int = 2048, base: float = 10000.0):
+        super().__init__()
         self.dim = dim
         self.max_seq_len = max_seq_len
         self.base = base
@@ -55,14 +55,14 @@ class RotaryEmbedding(nn.Module):
 
 class GroupedQueryAttention(nn.Module):
     """Grouped Query Attention with KV cache support"""
-    def _init_(
+    def __init__(
         self,
         hidden_size: int,
         num_heads: int,
         num_kv_heads: int,
         head_dim: int,
     ):
-        super()._init_()
+        super().__init__()
         self.hidden_size = hidden_size
         self.num_heads = num_heads
         self.num_kv_heads = num_kv_heads
@@ -127,8 +127,8 @@ class GroupedQueryAttention(nn.Module):
 
 class MLP(nn.Module):
     """MLP with SiLU activation (SwiGLU variant)"""
-    def _init_(self, hidden_size: int, intermediate_size: int):
-        super()._init_()
+    def __init__(self, hidden_size: int, intermediate_size: int):
+        super().__init__()
         self.gate_proj = nn.Linear(hidden_size, intermediate_size, bias=False)
         self.up_proj = nn.Linear(hidden_size, intermediate_size, bias=False)
         self.down_proj = nn.Linear(intermediate_size, hidden_size, bias=False)
@@ -140,7 +140,7 @@ class MLP(nn.Module):
 
 class LLaMADecoderLayer(nn.Module):
     """Single LLaMA decoder layer"""
-    def _init_(
+    def __init__(
         self,
         hidden_size: int,
         num_heads: int,
@@ -149,7 +149,7 @@ class LLaMADecoderLayer(nn.Module):
         head_dim: int,
         rms_norm_eps: float = 1e-6,
     ):
-        super()._init_()
+        super().__init__()
         self.input_layernorm = RMSNorm(hidden_size, eps=rms_norm_eps)
         self.self_attn = GroupedQueryAttention(
             hidden_size=hidden_size,
@@ -182,7 +182,7 @@ class LLaMADecoderLayer(nn.Module):
 
 class LLaMAModel(nn.Module):
     """Full LLaMA model"""
-    def _init_(
+    def __init__(
         self,
         vocab_size: int = 32000,
         hidden_size: int = 2048,
@@ -193,7 +193,7 @@ class LLaMAModel(nn.Module):
         rms_norm_eps: float = 1e-6,
         max_seq_len: int = 2048,
     ):
-        super()._init_()
+        super().__init__()
         self.vocab_size = vocab_size
         self.hidden_size = hidden_size
         self.num_hidden_layers = num_hidden_layers
@@ -278,7 +278,7 @@ def create_tinyllama_pytorch(device: str = 'cuda') -> LLaMAModel:
     return model
 
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     # Test the model
     model = create_tinyllama_pytorch()
     

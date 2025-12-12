@@ -9,7 +9,7 @@ import json
 
 # Import our implementations
 import bten
-from llama_pytorch import create_tinyllama_pytorch
+from benchmark_latency import create_tinyllama_pytorch
 from mygrad.llama.llama_config import LLaMAConfig
 
 def benchmark_python_impl(batch_size: int, num_warmup: int = 5, num_iterations: int = 100) -> Dict[str, Any]:
@@ -18,25 +18,18 @@ def benchmark_python_impl(batch_size: int, num_warmup: int = 5, num_iterations: 
     print("Benchmarking Python Implementation")
     print("="*60)
     
-    from agtensor import no_grad
+    import torch
     
     # Create model
     print("Creating model...")
-    config = LLaMAConfig()
-    config.vocab_size = 1000  # Smaller for faster testing
-    config.hidden_size = 256
-    config.num_hidden_layers = 4
-    config.num_attention_heads = 8
-    config.num_key_value_heads = 2
-    
-    model = create_tinyllama_pytorch(is_cuda=True)
+    model = create_tinyllama_pytorch(device='cuda')
     
     # Create input
-    input_ids = np.random.randint(0, config.vocab_size, size=batch_size, dtype=np.uint32)
+    input_ids = torch.randint(0, 32000, (batch_size,), device='cuda')
     
     # Warmup
     print(f"Warmup: {num_warmup} iterations...")
-    with no_grad():
+    with torch.no_grad():
         for _ in range(num_warmup):
             _ = model(input_ids)
     
@@ -44,10 +37,12 @@ def benchmark_python_impl(batch_size: int, num_warmup: int = 5, num_iterations: 
     print(f"Benchmarking: {num_iterations} iterations...")
     times = []
     
-    with no_grad():
+    with torch.no_grad():
         for _ in range(num_iterations):
+            torch.cuda.synchronize()
             start = time.perf_counter()
             logits = model(input_ids)
+            torch.cuda.synchronize()
             end = time.perf_counter()
             times.append((end - start) * 1000)  # Convert to ms
     
@@ -101,9 +96,9 @@ def benchmark_pytorch(batch_size: int, num_warmup: int = 5, num_iterations: int 
         return None
     
     try:
-        from llama_pytorch import create_tinyllama_pytorch
+        from benchmark_latency import create_tinyllama_pytorch
     except ImportError:
-        print("llama_pytorch.py not found! Make sure it's in the same directory.")
+        print("benchmark_latency.py not found! Make sure it's in the same directory.")
         return None
     
     # Create TinyLLaMA model
@@ -286,5 +281,5 @@ def main():
             json.dump(results, f, indent=2)
         print(f"\nResults saved to {args.output}")
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     main()
