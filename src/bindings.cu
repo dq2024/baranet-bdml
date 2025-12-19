@@ -1,13 +1,25 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
+#include "ops/op_elemwise.cuh"
+#include "py_tensor_shim.hh"
+#include "llama/llama_bindings.hpp"
 
 namespace py = pybind11;
 
-#include "py_tensor_shim.hh"
+// Declare as extern (defined in randgen.cu)
+extern unsigned long long randgen_seed;
 
 PYBIND11_MODULE(bten, m) {
   m.doc() = "Python bindings for Barenet (float32 or uint32 only for now)";
 
+  // Expose randgen_seed function
+  m.def("randgen_seed", [](unsigned long long seed) {
+      ::randgen_seed = seed;
+  }, "Set random seed");
+
   bind_tensor_type<float>(m, "TensorF");
   bind_tensor_type<uint32_t>(m, "TensorU32");
+  
+  // Bind LLaMA model
+  bind_llama_model(m);
 }
